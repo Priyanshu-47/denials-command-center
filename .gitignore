@@ -1,0 +1,43 @@
+# build output
+bin/
+obj/
+dist/
+build/
+node_modules/
+web/dist/
+eval/results.json
+
+# secrets & local config — never commit
+.env
+*.pfx
+*.key
+
+# ---------------------------------------------------------------------------
+# D14 / D15 — the assignment data pack is an INPUT, not source.
+# It sits in the repo working tree so the default DATA_DIR resolves, but it is
+# never tracked: claims carry patient identifiers and the 835s carry claim-level
+# payment detail. Reviewers supply their own copy (see README.md).
+# ---------------------------------------------------------------------------
+AQSoft_Assignment_Data_Pack_1/
+
+# data pack, wherever DATA_DIR points (reviewer's own unzip location)
+/data/
+*.835
+denials_worklog*.xlsx
+
+# generated extracts containing patient identifiers
+# (rebuild with: powershell -File tools/extract_worklog.ps1)
+worklog_extracted.csv
+*_extracted.csv
+
+# tool scratch output
+tools/*.json
+!tools/*.mjs
+*.log
+
+# editor / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
