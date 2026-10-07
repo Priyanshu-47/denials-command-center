@@ -318,6 +318,10 @@ Every policy window that states a number agrees with `payer_rules.csv`
   never papered over with a different payer's document.
 - Directly affects `MPPO_DX-EXCL-03.md`, whose preamble claims to apply to all network payers:
   only MRD55 denials may cite it.
+- The payer→policy association itself is **derived** (the pack has no policy column; it is
+  inferred from the file titles' payer prefix), so it is pinned by `PolicyReferenceTests`:
+  all four payers map to a file that exists and has content, the rules table and the policy
+  set cover the same four payers, and `ALL_PAYERS_MOD25-2026.md` is nobody's own document.
 
 #### Q4 — ambiguous worklog dates: store both readings, and **0 of 28 affect any deadline**
 
