@@ -1,0 +1,6 @@
+#!/bin/sh
+# PHI guard — refuses to record raw data or patient-identifier columns in git.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Bypass only with an explicit, reviewable override:  git commit --no-verify
+node tools/phi_guard.mjs --staged
+exit $?

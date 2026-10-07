@@ -1,0 +1,26 @@
+# Keep the assignment data pack and anything derived from it OUT of build
+# context: an image that bakes patient identifiers into a layer is a breach
+# even if the repository itself is clean.
+
+AQSoft_Assignment_Data_Pack_1/
+data/
+*.835
+denials_worklog*.xlsx
+worklog_extracted.csv
+*_extracted.csv
+
+.git/
+.gitignore
+.githooks/
+docs/
+tools/
+tests/
+node_modules/
+bin/
+obj/
+dist/
+build/
+*.log
+.env
+*.md
+!README.md

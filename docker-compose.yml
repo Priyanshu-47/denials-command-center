@@ -1,0 +1,60 @@
+# =====================================================================
+# `docker compose up`  ->  postgres + API.
+#
+# Two invariants this file is written to make true:
+#
+#   1. The data pack is mounted READ-ONLY at /data. Nothing in the
+#      container can rewrite, relocate or delete the originals, and
+#      nothing in the repository ever copies them.
+#   2. If DATA_DIR is unset or points somewhere that does not contain the
+#      expected files, the API exits immediately listing every file it
+#      could not find — it does not start and half-ingest.
+# =====================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-denials}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (cp .env.example .env)}
+      POSTGRES_DB: ${POSTGRES_DB:-denials}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-denials} -d $${POSTGRES_DB:-denials}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Denials: ${ConnectionStrings__Denials:-Host=db;Port=5432;Database=${POSTGRES_DB:-denials};Username=${POSTGRES_USER:-denials};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (cp .env.example .env)}}
+      DATA_DIR: /data
+      SEED_USERS: ${SEED_USERS:?set SEED_USERS in .env (cp .env.example .env)}
+      AUTOMIGRATE: ${AUTOMIGRATE:-true}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      # read-only, and only this directory: the pack is an input, never an output.
+      - ${DATA_DIR:?set DATA_DIR in .env to the unzipped data pack}:/data:ro
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 4s
+      retries: 24
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

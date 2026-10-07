@@ -1,0 +1,42 @@
+@host = http://localhost:5051
+@readerToken = local-reader-token-0000000000
+@ingestToken = local-ingest-token-0000000000
+
+### Health — no token required; a container probe has none.
+GET {{host}}/health
+
+### Reconciliation as JSON — needs the `reader` role.
+GET {{host}}/api/reconciliation
+Authorization: Bearer {{readerToken}}
+
+### Same figures as Markdown — this is the checked-in deliverable's source.
+GET {{host}}/api/reconciliation/report.md
+Authorization: Bearer {{readerToken}}
+
+### Exceptions, with the rows_in = matched + exceptions identity.
+GET {{host}}/api/exceptions
+Authorization: Bearer {{readerToken}}
+
+### Filter exceptions by reason code or claim.
+GET {{host}}/api/exceptions?reason=AMBIGUOUS_DATE
+Authorization: Bearer {{readerToken}}
+
+### One claim, its lines, and its full remittance history.
+GET {{host}}/api/claims/GPP-2026-000101
+Authorization: Bearer {{readerToken}}
+
+### Audit trail — last 500 entries.
+GET {{host}}/api/audit
+Authorization: Bearer {{readerToken}}
+
+### Re-ingest. Requires the `ingest` role; a `reader` token gets 403.
+### Returns unchanged=true when the pack has not moved.
+POST {{host}}/api/ingest
+Authorization: Bearer {{ingestToken}}
+
+### Expect 401 — no token.
+GET {{host}}/api/reconciliation
+
+### Expect 403 — valid token, wrong role.
+POST {{host}}/api/ingest
+Authorization: Bearer {{readerToken}}
