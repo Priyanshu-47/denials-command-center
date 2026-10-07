@@ -55,15 +55,34 @@ public class PolicyReferenceTests
     }
 
     [Fact]
-    public void All_five_policy_files_are_readable_with_real_content()
+    public void All_five_policy_files_parse_to_addressable_clauses()
     {
         var policies = ReferenceDataReader.ReadPolicies(Policies);
 
         Assert.Equal(5, policies.Count);
         Assert.Contains("ALL_PAYERS_MOD25-2026.md", policies.Keys);
 
-        foreach (var (name, content) in policies)
-            Assert.True(content.Length >= 100, $"{name} is only {content.Length} bytes");
+        foreach (var (name, document) in policies)
+        {
+            // Byte length only proved the file was non-empty. What the system actually needs is
+            // the ability to point at a specific clause — a policy that parses to nothing is
+            // unusable for citation and must fail here, not produce a draft citing a clause that
+            // cannot be found.
+            Assert.True(document.Sections.Count >= 1, $"{name} parsed to no clauses");
+            Assert.NotEmpty(document.Title);
+
+            foreach (var section in document.Sections)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(section.Text),
+                    $"{name} clause {section.Id} is empty");
+            }
+
+            // Clause ids must be unique or "section 3" is ambiguous — the citation could not be
+            // resolved to one place, which is the whole thing a citation is for.
+            Assert.Equal(
+                document.Sections.Count,
+                document.Sections.Select(s => s.Id).Distinct(StringComparer.Ordinal).Count());
+        }
     }
 
     [Fact]

@@ -46,7 +46,13 @@ public sealed class TestPack
           + "RARC,M15,Bundled.\n");
         File.WriteAllText(Path.Combine(root, "claim_adjustment_group_codes.csv"),
             "group,meaning\nCO,\"Contractual obligation\"\nPR,Patient responsibility\n");
-        File.WriteAllText(Path.Combine(root, "payer_policies", "NSHP_TEST.md"), "# test policy\n");
+        File.WriteAllText(Path.Combine(root, "payer_policies", "NSHP_TEST.md"),
+            "# Northstar Health Plan - Test Policy TEST-01\n"
+          + "## Synthetic clause for fixtures\n"
+          + "Effective: 2026-01-01\n"
+          + "\n"
+          + "1. A test claim that denies does so for testing purposes.\n"
+          + "2. Charges exceeding the fee schedule deny with CARC 45.\n");
 
         pack._claims.AppendLine(
             "claim_id,patient_first,patient_last,patient_dob,member_id,payer,payer_id,dos,"

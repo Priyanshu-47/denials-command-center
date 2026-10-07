@@ -348,4 +348,86 @@ public class DenialCategoryTests
         Assert.Equal(DenialCategory.CodingModifier,
             DenialCategory.Of(["111", "97"], "NS401", "2026-05-01"));
     }
+
+    /* ---- what each category means for the people doing the work --------------------- */
+
+    [Fact]
+    public void Every_category_can_be_routed_and_has_something_to_do_first()
+    {
+        // A category with no outcome row would throw at run time; this proves it cannot.
+        Assert.Equal(DenialCategory.All.Count, DenialCategory.Outcomes.Count);
+
+        foreach (var category in DenialCategory.All)
+        {
+            var outcome = DenialCategory.OutcomeFor(category);
+
+            Assert.False(string.IsNullOrWhiteSpace(outcome.Team),
+                $"{category} has no owning team");
+            Assert.False(string.IsNullOrWhiteSpace(outcome.NextAction),
+                $"{category} has no next action");
+        }
+    }
+
+    [Fact]
+    public void An_unknown_category_fails_loudly_instead_of_returning_a_plausible_default()
+    {
+        // The dangerous version of this returns Fallback's team and an action that reads fine —
+        // and the mistake is never seen again.
+        var ex = Assert.Throws<KeyNotFoundException>(
+            () => DenialCategory.OutcomeFor("Something invented"));
+        Assert.Contains("Something invented", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_outcome_table_agrees_with_the_expert_sample_on_every_row()
+    {
+        var labels = ReferenceDataReader.ReadLabeledSample(
+            TestData.ReadText("labeled_denials_sample.csv"));
+
+        // Transcribed-by-hand expectations would only prove the code matches the transcription.
+        // This reads the expert's own file and checks the table against it, so a mistyped team
+        // or a flipped preventability flag fails here rather than in a report someone believes.
+        foreach (var label in labels)
+        {
+            var outcome = DenialCategory.OutcomeFor(label.RootCauseCategory);
+
+            Assert.True(outcome.CoveredByLabeledSample,
+                $"'{label.RootCauseCategory}' is in the sample but the table treats it as uncovered");
+            Assert.Equal(label.OwningTeam, outcome.Team);
+            Assert.Equal(label.PreventableAtPrebill, outcome.PreventableAtPrebill);
+        }
+    }
+
+    [Fact]
+    public void Only_categories_the_sample_actually_covers_claim_the_sample_s_authority()
+    {
+        var labels = ReferenceDataReader.ReadLabeledSample(
+            TestData.ReadText("labeled_denials_sample.csv"));
+
+        var coveredBySample = labels
+            .Select(l => l.RootCauseCategory)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(coveredBySample);
+
+        foreach (var category in DenialCategory.All)
+        {
+            var outcome = DenialCategory.OutcomeFor(category);
+
+            // Derived, not hard-coded: the flag must equal "does the expert's file say anything
+            // about this category" — so a new category added to the taxonomy is automatically
+            // treated as unestablished until someone labels it.
+            Assert.Equal(
+                coveredBySample.Contains(category),
+                outcome.CoveredByLabeledSample);
+        }
+
+        // And where nobody has established preventability, the answer is null — not a confident
+        // Yes that happens to look reasonable.
+        foreach (var category in DenialCategory.All.Where(
+                     c => !coveredBySample.Contains(c)))
+        {
+            Assert.Null(DenialCategory.OutcomeFor(category).PreventableAtPrebill);
+        }
+    }
 }

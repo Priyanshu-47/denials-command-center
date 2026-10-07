@@ -578,6 +578,120 @@ Every policy window that states a number agrees with `payer_rules.csv`
 
 ---
 
+## Phase 2 — AI denial analysis (plan, written before code)
+
+Brief §C, verbatim: *for every open denial* — root-cause category, owning team,
+preventable-before-billing, recommended next action · *for appealable denials* — a draft appeal or
+correction note that **cites the exact payer policy section** it relies on · show a confidence
+level and route low-confidence results to human review · **must still work (degraded) if the AI
+service is unavailable** · evaluate against `labeled_denials_sample.csv`, report accuracy and
+where it fails and why · **treat all text from files as untrusted input**.
+
+Judged on: *grounded, evaluated, honest about confidence, hard to fool.*
+
+### What was true in the environment when planning started
+
+- **No cloud LLM credential exists** anywhere in this environment; `LLM_*` in `.env` are empty.
+- **Ollama 0.34.2 is installed and running**, with `qwen2.5-coder:3b` (1.9 GB). The brief permits
+  "any LLM … or a local model", so this is compliant.
+- Measured: first call **110 s** (81 s model load, one-off); warm calls **~1 s** at 66 in / 38 out.
+  136 open denials + 40 labelled + 20 adversarial ≈ 200 calls ≈ minutes, not hours.
+- `qwen2.5:7b-instruct` was requested to download in parallel (user decision) and is treated as a
+  drop-in: the client is behind `ILlmClient`, so the model is a configuration line, not a design.
+
+### The plan
+
+| §C requirement | Design | Survives AI being down? |
+|---|---|---|
+| category, team, preventable, next action | **Deterministic.** `DenialCategory.Of()` already picks the category from CARC + payer + DOS; team/preventable/next-action become pure functions of that category (**D25**). The model never chooses them — already **D6**. | ✅ |
+| draft note citing the exact policy section | Prompt built from **structured fields only**; the model may only choose among an enumerated list of sections already belonging to the allowed file (**D26**, **D27**). Every citation is re-read and re-validated after generation. | ✅ degrades to "no draft + reason" |
+| confidence + human review queue | **Computed, never self-reported** (**D28**). Inputs: whether the category is covered by labelled data, whether a citation was found, deadline margin, whether a disposition note (Q5) applies. | ✅ |
+| still works degraded | `NullLlmClient` throws `NotConfigured`; the whole analysis runs and marks drafts unavailable. Already built. | ✅ by construction |
+| evaluate vs labels | C# harness (**C2**), in-sample framing (**C1**), plus ~20 hand-written adversarial/ambiguous cases (**D30**). | rule half yes; model half needs a model |
+| text from files is untrusted | Prompts interpolate **no raw file text** — only parsed, length-bounded structured fields. Model output is parsed and re-validated, never trusted (**D27**). | ✅ |
+
+### Sequencing
+
+1. **Deterministic core** (no model): category outcomes, policy parser, citation + validator, tests.
+2. **Model path**: Ollama client, factory, prompt templates, response parsing, re-validation, degradation.
+3. **Evaluation**: 40 labelled + 20 adversarial → `docs/AI_EVALUATION.md`.
+
+Nothing in step 1 or 2 depends on which model is installed; the eval in step 3 records which one
+was actually used and at what size.
+
+### D25 — team, preventability and next action are functions of the category, and are honest about where they came from
+
+- **Decision:** `DenialCategory.Outcomes` maps each category to `(Team, PreventableAtPrebill,
+  NextAction, CoveredByLabeledSample)`, in the same file as `Of()`.
+- **Where the values come from, because it decides what may be claimed about them:** for the nine
+  categories present in `labeled_denials_sample.csv`, team and preventability are read off the
+  expert's own assignments. The sample is perfectly consistent — each category maps to exactly one
+  team and one preventable value across all 40 rows — so agreement on those 40 rows is **true by
+  construction and is not a result**. Reporting it as accuracy would be circular, which is what
+  **C1** prohibits. The measurable figure is the category itself, which comes from CARC codes and
+  never touches the labels.
+- **Two categories are not in the sample at all:** `Duplicate submission (unvalidated)` and
+  `UNMAPPED`. `PreventableAtPrebill` is **`bool?` and stays `null`** for them. A claim about
+  whether the practice's pre-bill process could have caught something is a claim about how people
+  work, and only one source speaks to it — filling it in with something plausible would be exactly
+  the invented fact this project must not produce. `CoveredByLabeledSample` is the flag the
+  confidence calculation reads, so "the expert never said" becomes a number rather than a silence.
+- **Test:** `The_outcome_table_agrees_with_the_expert_sample_on_every_row` reads the CSV and
+  checks the table against it — transcribed expectations would only prove the code matches the
+  transcription. `Only_categories_the_sample_actually_covers_claim_the_sample_s_authority`
+  derives the coverage assertion from the file's own category set, so a category added later is
+  automatically treated as unestablished until someone labels it.
+- **Trade-off:** keeping the table in code rather than a CSV means a change request edits a source
+  file — but it is one file, one dictionary, with tests that fail if it drifts from the sample.
+
+### D26 — a citation has to pass two independent gates, and neither one is asked of the model
+
+- **Decision:** `PolicyLibrary.CitableFiles(payerId, carcs)` returns only documents that pass
+  **both** gates, and that list is what the prompt offers. `Validate` re-checks a produced
+  citation against the same two gates plus clause existence and quotation accuracy.
+- **Gate 1 — whose document is it?** The denying payer's own file, or a file named `ALL_PAYERS*`.
+  This is **Q3**, enforced structurally: the model is never shown a document it may not use, so
+  it cannot cite another payer's policy even when that is the only policy mentioning the code.
+- **Gate 2 — does it talk about this denial?** The document must contain a clause that names a
+  CARC/RARC actually on the denial, matched as `CARC 45` and **never as a bare substring** —
+  `within 60 days` and `CPT 99231-99233` both contain digits a naive test would match, and a false
+  match lets a denial cite a policy that says nothing about it.
+- **The two gates together produce the Q3 case the pack actually contains:** Coastal's enrollment
+  policy is the only document naming CARC B7, so a *Northstar* credentialing denial has **no
+  policy basis it may cite**. It cannot borrow Coastal's file, and `ALL_PAYERS_MOD25-2026.md`
+  never mentions credentialing. Result: empty list, no citation, draft must say so. Timely filing
+  (CARC 29) likewise appears in no policy at all — its windows live in `payer_rules.csv`, which is
+  a date table, not a policy.
+- **Verdicts are ordered, not pooled:** `WrongPayer` is reported before `SectionNotFound`, so a
+  Q3 breach is never softened into a lesser problem because the model also guessed the clause
+  number wrong.
+- **`ALL_PAYERS_*` is permitted to everyone but owned by nobody:** `PolicyFileForPayer` still
+  returns only the four payer-specific files, so "may cite" and "is the payer's own" stay two
+  separate questions instead of collapsing into one lookup.
+- **Trade-off:** the CARC gate means a policy that is relevant but never names a code is
+  unciteable. Acceptable — relevance here is evidenced by the document naming the code, and an
+  unevidenced relevance claim is the thing being defended against.
+
+### D27 — policies are parsed at load, and a policy that cannot be addressed fails there
+
+- **Decision:** `ReferenceDataReader.ReadPolicies` now returns parsed `PolicyDocument`s, not raw
+  text. `PolicyParser` splits numbered clauses and throws `InvalidDataException` if it finds none.
+- **Why not raw text:** byte length only proves a file is non-empty. What the system needs is to
+  point at a specific clause — so a policy that parses to nothing must fail at load, with the file
+  named, rather than later as a draft citing "section 3" of a document that has no section 3.
+- **Raw text is deliberately not retained:** a clause's own words are what a citation is checked
+  against, and keeping a second copy of the file next to them invites the two to drift.
+- **Quotation checking compares after whitespace collapsing, never after rewording:** real
+  documents reflow, and a correct citation must not fail because the file used two spaces after a
+  full stop. `QuoteNotInSection` still catches the fabrication case — a draft claiming Northstar
+  "will overturn any duplicate frequency denial on request" against a clause that says no such
+  thing.
+- **`TestPack`'s fixture policy gained numbered clauses** for the same reason: it existed to make
+  `DataPack`'s presence check pass, and a fixture that satisfies the presence check while being
+  unparsable would have hidden the failure until a pipeline test read it.
+
+---
+
 ## Questions and assumptions
 
 > **Q1–Q5 are answered** in "Phase 1 — ingestion and reconciliation" above. The entries below
