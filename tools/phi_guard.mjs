@@ -3,6 +3,8 @@
 //
 // Rules
 //   R1 path   : any tracked file inside the data pack (or a raw .835 / worklog .xlsx)  -> BLOCK
+//               EXCEPT the exact list in APPROVED_PACK_FILES (D24), which is still
+//               scanned by R2/R3 below — path approval is not a content pass.
 //   R2 header : any tracked *.csv / *.tsv whose header row carries a patient-identifier
 //               column (patient_first, patient_last, patient_dob, member_id, Patient)  -> BLOCK
 //   R3 value  : any tracked *text* file containing a real patient name as a whole word  -> BLOCK
@@ -11,6 +13,10 @@
 //
 // Docs may legitimately mention column *names* (`patient_dob`); that is R2, and R2 only
 // inspects data files, so `docs/*.md` is unaffected.
+//
+// APPROVED_PACK_FILES is deliberately an exhaustive list of literal paths rather than a
+// glob: a new file in the pack is a violation until someone adds it here in a diff that
+// a human reads. `payer_policies/*` would silently admit whatever turn up next.
 //
 // Usage:
 //   node tools/phi_guard.mjs            # scan all tracked files
@@ -29,6 +35,28 @@ const DATA_EXT = new Set(['.csv', '.tsv']);
 const TEXT_EXT = new Set(['.md', '.mjs', '.js', '.ts', '.tsx', '.cs', '.json', '.yml', '.yaml',
   '.txt', '.ps1', '.sh', '.env', '.example', '']);
 const RAW_NAME = /(^|[\\/])(remits[\\/].*\.835|denials_worklog[^\\/]*\.xlsx)$/i;
+
+// Where the pack sits inside this repository. Used for R1 only — DATA_DIR below is where
+// the pack happens to be for *this* run, which is a reviewer's own unzip location and may
+// not be a path git tracks at all. Basing an exclusion rule on a runtime override would let
+// DATA_DIR=/somewhere-else quietly switch the rule off.
+const PACK = 'AQSoft_Assignment_Data_Pack_1';
+
+// D24 (user-approved, 2026-10-07) — exactly these four references may be tracked. They are
+// pure reference data: day-count windows, code meanings, policy prose. No person appears in
+// them, and they are what the system reasons from, so they are readable without the pack.
+// Everything else under PACK is still a violation. These files are NOT skipped below: they
+// fall through to R2 and R3 like any other file.
+const APPROVED_PACK_FILES = new Set([
+  `${PACK}/payer_rules.csv`,
+  `${PACK}/carc_rarc_reference.csv`,
+  `${PACK}/claim_adjustment_group_codes.csv`,
+  `${PACK}/payer_policies/ALL_PAYERS_MOD25-2026.md`,
+  `${PACK}/payer_policies/CSA_PROVIDER-ENROLLMENT.md`,
+  `${PACK}/payer_policies/MPPO_DX-EXCL-03.md`,
+  `${PACK}/payer_policies/NSHP_HOSP-FREQ-07.md`,
+  `${PACK}/payer_policies/SMP_SNF-AUTH-2026.md`,
+]);
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
@@ -62,16 +90,28 @@ function loadNames() {
 const names = loadNames();
 
 const violations = [];
-const isUnderPack = f => f === DATA_DIR || f.startsWith(DATA_DIR + '/');
+// Repo-relative: a path is "in the pack" if it sits at the pack's own location. DATA_DIR is
+// not consulted here — see PACK above.
+const isUnderPack = f => f === PACK || f.startsWith(PACK + '/');
 
 /* R1 + R2 + R3 ---------------------------------------------------------- */
 for (const f of targets) {
   const abs = path.join(REPO, f);
 
-  if (isUnderPack(f) || RAW_NAME.test(f)) {
-    violations.push({ rule: 'R1-path', file: f, detail: 'raw data-pack file must never be tracked' });
+  // R1: in the pack (and not on the approved list), or a raw remittance/worklog by shape.
+  const rawByName = RAW_NAME.test(f);
+  if ((isUnderPack(f) && !APPROVED_PACK_FILES.has(f)) || rawByName) {
+    violations.push({
+      rule: 'R1-path',
+      file: f,
+      detail: rawByName
+        ? 'raw remittance / worklog file must never be tracked'
+        : 'raw data-pack file must never be tracked (not on the D24 approved list)',
+    });
     continue;
   }
+  // An approved pack file falls through: it is still an .md/.csv, so R2 and R3 run on it
+  // below. Nothing about being on the approved list exempts it from content checks.
   if (!fs.existsSync(abs)) continue;
 
   const ext = path.extname(f).toLowerCase();
@@ -112,5 +152,10 @@ console.error(`
 Raw data belongs in DATA_DIR (git-ignored), never in git.
   git rm --cached <file>            # stop tracking it, keep it on disk
   echo <file> >> .gitignore
+
+If this file really is reference data with no person in it, the way to allow it
+is to add its EXACT path to APPROVED_PACK_FILES in tools/phi_guard.mjs, in a
+change someone will read. Do not widen the pack pattern in .gitignore instead —
+that opens every file next to it.
 `);
 process.exit(1);

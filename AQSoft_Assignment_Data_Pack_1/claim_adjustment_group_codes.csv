@@ -1,0 +1,5 @@
+group,meaning
+CO,"Contractual obligation - provider responsibility, cannot bill patient"
+PR,Patient responsibility
+OA,Other adjustment
+PI,Payer initiated reduction

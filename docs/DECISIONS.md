@@ -549,6 +549,33 @@ Every policy window that states a number agrees with `payer_rules.csv`
 - **Trade-off:** none of substance; a checksum that under-distinguishes would have been found
   only by a test that happened to vary service-level adjustments alone.
 
+### D24 — four reference files are committed; the rest of the pack never will be
+
+- **Decision (user-approved, 2026-10-07):** commit `payer_rules.csv`,
+  `carc_rarc_reference.csv`, `claim_adjustment_group_codes.csv` and `payer_policies/*.md`.
+  Everything else in the pack stays ignored.
+- **Why:** they are pure reference data — day-count windows, code meanings, and policy prose.
+  No person appears in any of them, and they are the material the system *reasons from*, so a
+  reviewer should be able to read what the rules are without unzipping anything.
+- **Mechanics:** the pack pattern is `AQSoft_Assignment_Data_Pack_1/*`, not a trailing slash —
+  git cannot re-include a file whose **parent directory** is excluded, so the directory itself
+  has to stay open for the negations to reach the files. `git status --untracked-files=all`
+  confirms exactly 8 files surface and 0 others.
+- **Correction to an earlier framing:** this does **not** make the repository standalone.
+  `claims_export.csv` and `remits/*.835` remain excluded and always will be, so `dotnet test`
+  still needs a reviewer-supplied pack. The gain is *reviewability of the rules*, not
+  self-containment. Stated here because it was offered as the opposite.
+- **Two holes found while making the change, both closed:**
+  1. `claims_export.csv` was only excluded *by path*. Pointing `DATA_DIR` at another folder and
+     unzipping there would have made a file full of names, DOBs and member IDs untracked-but-
+     ignorable, and `git add .` would have taken it. Now ignored **by file name**, anywhere.
+  2. Same for `*.xlsx`. Deliberately broad: an xlsx is binary, so phi_guard's R3 whole-word
+     name check cannot read it, and a *renamed* worklog would slip past R1's specific pattern.
+     Committing a spreadsheet now needs `git add -f` and a reason — that friction is the point.
+- **Trade-off:** the four committed files are assignment inputs, so the repository now carries
+  part of the brief. Accepted because they are reference tables with no people in them, and
+  because a rule you cannot read is a rule you cannot audit.
+
 ---
 
 ## Questions and assumptions

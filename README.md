@@ -147,6 +147,16 @@ tools/                  dev-only Node scripts; PHI guard
 
 * The assignment data pack is **never committed**. `.gitignore` and
   `tools/phi_guard.mjs` (wired as a pre-commit hook) both block it.
+* **Four exceptions**, by user decision (D24): `payer_rules.csv`,
+  `carc_rarc_reference.csv`, `claim_adjustment_group_codes.csv` and
+  `payer_policies/*.md` are committed. They are pure reference data — day-count
+  windows, code meanings, policy prose — with no person in any of them, and they
+  are what the system reasons from, so you can read the rules without unzipping
+  anything. **This does not make the repository standalone**: `claims_export.csv`
+  and `remits/*.835` stay out, so `dotnet test` still needs your own pack.
+* `claims_export.csv` and `*.xlsx` are ignored **by file name**, anywhere on the
+  tree, not just inside the pack — unzipping to a different folder and running
+  `git add .` must not pick up names, DOBs and member IDs.
 * `.dockerignore` keeps the pack out of every image layer.
 * Money is `decimal` in C# and `numeric(18,2)` in PostgreSQL. No `float`,
   `real` or `double` appears anywhere in the money path — a half-cent rounding

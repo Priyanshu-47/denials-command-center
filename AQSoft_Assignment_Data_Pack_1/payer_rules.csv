@@ -1,0 +1,5 @@
+payer,payer_id,timely_filing_days_from_dos,appeal_window_days_from_denial,corrected_claim_window_days_from_denial
+Northstar Health Plan,NS401,180,180,180
+Coastal Senior Advantage,CSA77,365,120,120
+Sunshine Medicaid Partners,SMP12,120,60,60
+Meridian PPO,MRD55,90,90,90

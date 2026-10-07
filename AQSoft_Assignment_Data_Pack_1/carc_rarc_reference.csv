@@ -1,0 +1,22 @@
+type,code,description
+CARC,1,Deductible amount.
+CARC,2,Coinsurance amount.
+CARC,3,Co-payment amount.
+CARC,11,The diagnosis is inconsistent with the procedure.
+CARC,18,Exact duplicate claim/service.
+CARC,27,Expenses incurred after coverage terminated.
+CARC,29,The time limit for filing has expired.
+CARC,45,Charge exceeds fee schedule/maximum allowable or contracted/legislated fee arrangement.
+CARC,50,These are non-covered services because this is not deemed a medical necessity by the payer.
+CARC,97,The benefit for this service is included in the payment/allowance for another service/procedure that has already been adjudicated.
+CARC,151,Payment adjusted because the payer deems the information submitted does not support this many/frequency of services.
+CARC,197,Precertification/authorization/notification/pre-treatment absent.
+CARC,B7,This provider was not certified/eligible to be paid for this procedure/service on this date of service.
+RARC,M15,Separately billed services/tests have been bundled as they are considered components of the same procedure.
+RARC,M127,Missing patient medical record for this service.
+RARC,N30,Patient ineligible for this service.
+RARC,N54,Claim information is inconsistent with pre-certified/authorized services.
+RARC,N362,The number of Days or Units of Service exceeds our acceptable maximum.
+RARC,N522,"Duplicate of a claim processed, or to be processed, as a crossover claim."
+RARC,N570,Missing/incomplete/invalid credentialing data.
+RARC,N657,This should be billed with the appropriate code for these services.
