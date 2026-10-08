@@ -236,3 +236,225 @@ The guard ran but its non-zero status was consumed by the following command in t
 - **The checksum value changed** during the phase (`f4600390…` → `50c176cb…`) because **D23**
   made it distinguish claim-level from service-level adjustments. No reconciliation figure
   moved. Stated plainly rather than presented as if the checksum were always what it is now.
+
+---
+
+## Phase 2 — AI denial analysis (2026-10-08)
+
+### AI helped
+
+- **Separating what the model is allowed to decide from what it is not.** The single most
+  useful move was refusing to let the model pick the category, owning team or preventability.
+  Once those became pure functions of `DenialCategory.Of()` (**D6/D25**), the evaluation had a
+  number that could not be flattered by the model, and "where it fails" became attributable to
+  either the rules or the drafting — not to a blur between them.
+- **Designing the citation as two gates neither of which is asked of the model** (**D26**).
+  Ownership and relevance are decided by code and only the *allowed* options are put in the
+  prompt. It converted "hope the model cites correctly" into "validate a selection from a list",
+  which is a checkable claim.
+- **Insisting on a `ClauseAvailableUncited` verdict.** The model declining a clause our rules had
+  found was originally going to look like a soft failure. Giving it its own verdict, and pricing
+  it identically to a failed citation in **D28**, meant a draft could be kept *and* still be
+  unable to clear review unaided.
+
+### AI was wrong
+
+**W18 — the model turned an instruction to verify something into an assertion that it is so
+(the most important finding of the phase).**
+Live run, `qwen2.5-coder:3b`, on the CARC-151 *Coding - frequency* fixture
+(`LiveModelTests.Frequency()`, a synthetic claim, not one of the 136). Our prompt field read
+*"Confirm **whether** the second same-day service followed a change of condition."* The model
+produced a **validated** citation — the quotation really is in Northstar `NSHP_HOSP-FREQ-07` §2 —
+and then wrote:
+
+> "The second same-day service followed a change of condition, which is not allowed…"
+
+Nothing in the input said that. It converted a question into a fact and then argued from the
+fact.
+- **How it was caught:** reading the transcript rather than the verdict line. The citation
+  validator passed, the invariants passed, and the test was green — every automated signal said
+  this draft was fine.
+- **Why it is not fixable by validation:** the validator proves the *policy basis*, not the
+  prose. The citation is true; the clinical claim attached to it is invented. This is precisely
+  why drafts go to a human and are never sent, and it is recorded as the residual risk in
+  `docs/AI_EVALUATION.md` rather than as a solved problem.
+- **Partial mitigation:** **D31** stops free text going *in*, which removes the model's ability
+  to launder a worklog note into an assertion. It does not stop the model inventing a fact the
+  input never contained — nothing in the current design does.
+
+**W19 — the live-model test suite passed 3/3 while the model was completely unreachable.**
+Ollama had been killed by an environment restart; every call was refused on
+`localhost:11434`. The batch ran to completion, reported `Passed: 3`, and the transcript showed
+`produced=0`, `verdict=NotAssessed` for all 36 denials.
+- **How it was caught:** the test prints a `[batch]` tally, and `produced=0` is not a number a
+  passing run should show. The green result alone would have been reported as a successful
+  evaluation.
+- **Why it happened:** the assertions are invariants of the degraded path — *if* a draft appears,
+  its citation must validate; *if* the model is down, the analysis must still stand. Both are
+  correct requirements, and both hold when no model is called. The test therefore proved the
+  degraded path (**§C "must still work"**) at 36-denial scale, and proved nothing about the model.
+- **Fix:** the tally is now the thing read first, and `docs/AI_EVALUATION.md` reports
+  `produced` alongside every model result so a run with no output cannot be quoted as one. The
+  environment check (`/api/tags`) is run before a batch rather than assumed.
+- **Severity:** a false *pass*, not a false failure — the dangerous direction for an evaluation
+  that a submission depends on.
+
+**W20 — a series of compile- and assertion-level mistakes in the Phase 2 code, each caught
+before commit.** Individually trivial, collectively worth listing because they were all the same
+shape — assuming an API rather than reading it:
+`IReadOnlyDictionary.Keys` returns `IEnumerable<T>`, not a collection; a record named
+`LlmSettings` collided with the class of the same name; `LlmException` has no `Inner` setter;
+`RemitObservation.StatusCode` (not `.Status`); `Csv` lives in `AQ.Denials.Ingest.Readers`;
+`ILlmClient` is not `IDisposable`; and `Assert.True(false, msg)` is `Assert.Fail(msg)` in xUnit.
+- **How they were caught:** the compiler and the xUnit runner, on every change — which is the
+  point of running the suite before each commit rather than at the end of the phase.
+- **Not counted as findings:** none reached a published number. Listed because the brief asks
+  where AI was wrong, and "wrong in a way the compiler caught" is still wrong.
+
+**W21 — an interrupted evaluation run.** The first batch was cut off mid-flight by an
+environment restart, leaving a transcript of unknown provenance in the temp directory.
+- **How it was caught:** the run was re-executed from scratch rather than resumed, and the
+  transcript is regenerated each time. An evaluation result whose run did not complete is not a
+  result.
+
+**W22 — the batch invariant was written as `Assert.Equal(produced, malformed)`.**
+The comment beside it said "no reply may produce a half-formed outcome", which is `malformed == 0`.
+The assertion as written demanded that malformed replies equal the number of *produced* replies —
+i.e. that every reply be bad. It failed with `Expected: 35, Actual: 0`, which is the assertion
+being wrong and the run being right: **35 produced, 0 malformed**.
+- **How it was caught:** the run failed, and the failure message contradicted its own comment.
+  Reading the number rather than the word "failed" is what showed the model had done well and the
+  test had not.
+- **Why it is worth recording:** a false *failure* here looks like the model misbehaving. Left
+  unexamined it would have been reported as a bad model result in `docs/AI_EVALUATION.md`.
+
+**W23 — `dotnet build` was the only signal that a file I "created" did not exist.** A write to
+`Reports/Analytics.cs` reported success; the file was not on disk when a later edit failed with
+"File not found". Two sibling writes in the same stretch did persist, so nothing about the
+situation was self-evident.
+- **How it was caught:** a subsequent targeted edit, not the build — the build would have failed
+  later with a missing type, a slower and more confusing signal than "file not found".
+- **Rule adopted:** tool success messages report the request, not the filesystem. Files a later
+  step depends on are verified by `glob` or `Read` before they are referenced.
+
+**W24 — four `CS1061` errors from deconstructing a tuple in my head.** `Priority.Compute` assigns
+`var urgency = daysUntilDeadline switch { … => (150, "…") }`, producing a `(int, string)` tuple,
+then reads `urgency.Weight` / `urgency.Because`. The neighbouring block had been written with
+`var (weight, because) = …` and worked. The pattern was right in one place and assumed in the
+other.
+- **How it was caught:** the compiler, and only after a background test run had already died on
+  it — the failure surfaced as a *build* error inside a log I was reading for model output, which
+  is how it could easily have been dismissed as unrelated noise.
+
+**W25 — the 7B model produced 0 of 36 drafts, and the first reading was "the model failed".**
+Every one of the 36 replies was `NotAssessed` with the same reason: *"did not respond within
+60s"*. The default `LLM_TIMEOUT_SECONDS` is 60; `qwen2.5:7b-instruct` is ~4.7 GB and its cold
+load exceeds that on this machine. The model had not answered badly — it had not been given time
+to start.
+- **How it was caught:** reading the transcript rather than the tally. `produced=0` alone
+  supported "7B is worse than 3B", which would have been a false and load-bearing claim in
+  `docs/AI_EVALUATION.md`.
+- **Why it is worth recording:** the same failure mode as **W19** in reverse — there a passing run
+  had done no work; here a failed run looked like a result. In both cases the tally was true and
+  the interpretation was not.
+- **Action:** re-run at 240 s, and report the timeout itself as a product finding — a 7B model
+  under default configuration yields an empty draft queue, and nothing warns about that except an
+  empty state.
+
+**W26 — `Results.Forbidden()` does not exist, and the compiler reported three other things
+instead.** In .NET 8 minimal APIs the method is `Results.StatusCode(403)`. Because one `return`
+did not compile, inference on the lambda's return type failed and produced `CS4010 … Task<?>` at
+the *other three* `return` statements in the same handler — 486, 491 and 557 — none of which were
+wrong.
+- **How it was caught:** opening the line the error did not mention. The fix was one line; the
+  cost was reading four errors to find one cause.
+- **Changed instead:** the 403 became a 404 with the same body as the detail route. A 403 would
+  confirm that a colleague's claim exists, which is exactly what **D35** says the queue must not
+  do — so the compile error turned into the right answer, for a reason unrelated to compilation.
+
+**W27 — a multi-line raw string literal with its closing `"""` at the end of the second line.**
+C# only treats a raw string as multi-line if the closing delimiter is on its own line; as written
+it is unterminated and cascades as six `CS1002`/`CS1513` errors on the following lines. The first
+error points at where the string ends, not at the line where the syntax decision was wrong.
+
+**W28 — the role-seed validation I wrote rejected my own test.** The round-trip test seeded two
+identities (`ingest`, `manager`) and the startup guard failed it: *"SEED_USERS contains no
+'specialist'"*. The guard is correct and the fixture was not — a fixture for a product with two
+worklist roles must seed both.
+- **Counted as a success of the guard, not a failure of the test.** This is the configuration
+  error the product would have hit at first click on Monday, caught in 1 ms by a test instead.
+
+**W29 — `g.Count` where `g` is an `IGrouping`.** There is no `Count` property, so it resolves to
+the method group of the `Count()` extension and produces `CS0019` ("operator '==' cannot be
+applied to method group and int") plus a phantom `CS0030`. Hoisted to a local, which is also
+easier to read inside a projection.
+
+**W30 — the zero-paid-line predicate was designed from memory instead of from the data.** The
+first version required a CARC 97 adjustment *on the service line* with `Amount == 0`. It found
+**0** claims. Phase 0 recorded CARC 97 on the *observation*, and the anchor is 19 claims /
+$3,365. Rewritten to test the observation for CARC 97 and sum service lines with `Paid == 0`, it
+returns **19 / $3,365.00** exactly.
+- **How it was caught:** the test asserted the Phase 1 anchor as a number, not as `> 0`. A "found
+  some" assertion would have passed on any non-zero value and hidden a wrong derivation; a pinned
+  figure fails on a wrong derivation and passes on a correct one.
+
+**W31 — the TypeScript model of a C# record was written before the record was.**
+`web/src/types.ts` declared `PreventionCheck` with `stoppedClaims` / `stoppedDenials` /
+`stoppedAmount` and a two-valued `confidence`. The server returns `claimsFlagged` /
+`denialsCaught` / `amountCaught` and a three-valued `confidence` including `not_measurable`.
+- **Not caught by the type checker, and it would not have been:** a wrong *type* that nothing
+  reads is invisible to `tsc`, and had the component used the wrong names it would have typecheck
+  cleanly and rendered `undefined` at runtime. Caught by reading the C# record before writing the
+  component.
+- **Standing risk:** `types.ts` is a local assertion, not a contract with the server. There is no
+  shared schema, and the README must not imply one.
+
+**W32 — default import from a module with a named export.** `main.tsx` did
+`import App from "./App"` against `export function App()`. One line, but the kind that only
+appears when someone finally runs `tsc` — which is why `npm run build` runs it as its first step
+rather than shipping a bundle that throws on first paint.
+
+**W33 — attempted to reach a local PostgreSQL by guessing passwords.** With no usable credentials
+for the Postgres listening on 5432, four candidates were tried (`postgres`/`postgres`,
+`postgres`/`password`, `postgres`/`123456`, `denials`/`denials`) before stopping. All failed.
+- **Why it is recorded:** the instinct was wrong regardless of the outcome. The correct reading of
+  *"no credentials available"* is that the database is not available to me, and work that depends
+  on it should be designed around that fact rather than tested around it. Stopping after four was
+  the only part of this that was right.
+- **Consequence, adopted rather than worked around:** no test in this repository connects to a
+  developer's local database. API tests run without one; DB-backed worklist mutation tests are
+  listed as an open item in the end-of-phase report instead of being made to depend on a machine
+  I happen to have access to.
+
+**W34 — `phi_guard` reported OK while silently skipping every file in the change.** The guard
+walks `git ls-files`, i.e. tracked files. Run before `git add`, it saw **97** files and reported
+`0 violations`; after staging, the same command saw **135**. The 38 new files in this phase were
+never checked, and the output gave no sign of that.
+- **How it was caught:** the file count did not move after adding roughly fifteen source files.
+  The count is the only part of the output that carried the information; `0 violations` was
+  identical and meaningless in both runs.
+- **Why it matters here:** a PHI guard whose confidence is a constant is worse than none, because
+  it converts "I did not look" into "I looked and found nothing". Anyone reporting `phi_guard: OK`
+  as evidence must report the scanned-file count beside it — this report does: **135 scanned,
+  0 violations**.
+- **Design note, not changed:** scanning only tracked files is *correct* for the pre-commit hook,
+  which runs after staging — that is exactly the tree about to be recorded. The flaw is running
+  it manually and reading the answer as covering work that is not yet staged.
+
+### AI was uncertain and said so
+
+- **Confidence weights are a design choice, not a fit** (**D28**). They were fixed before the
+  evaluation ran. Whether they separate good from bad is measured and reported in
+  `docs/AI_EVALUATION.md`; if they do not separate well, the weights stay and the report says so.
+- **The 40/40 is a fit statistic.** **C1** required this framing before results existed. It is
+  reported as *fit to the labelled sample*, never as accuracy, and the structural finding that
+  **4 of the 40 rows are not open denials** is stated up front rather than in a footnote.
+- **Anthropic is not implemented** (**D29**) and the docs do not imply otherwise, even though the
+  brief names Anthropic as acceptable. Saying "supports Anthropic" would have been one line of
+  marketing and one broken configuration.
+- **`DuplicateUnvalidated` and `UNMAPPED` have no preventability value** (**D25**) because the
+  expert never labelled them. Reported as `null` with a coverage flag rather than guessed.
+- **Which model actually produced the numbers** is recorded per run in
+  `docs/AI_EVALUATION.md`, including parameter count and quantisation. An evaluation that does
+  not name its model cannot be reproduced, and a 3B coder model is a different system from a 7B
+  instruct model.
