@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AQ.Denials.Core\AQ.Denials.Core.csproj" />
+    <ProjectReference Include="..\AQ.Denials.Rules\AQ.Denials.Rules.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

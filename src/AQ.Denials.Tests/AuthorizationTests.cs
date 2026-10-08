@@ -31,6 +31,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public const string ReaderToken = "unit-test-reader-token-00000000";
     public const string IngestToken = "unit-test-ingest-token-00000000";
+    public const string SpecialistToken = "unit-test-specialist-token-00000";
+    public const string ManagerToken = "unit-test-manager-token-000000000";
     public const string DevDefaultToken = "dev-reader-token";
 
     static ApiFactory() => ConfigureProcessEnvironment();
@@ -53,7 +55,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("DATA_DIR", TestData.DataDir);
         Environment.SetEnvironmentVariable(SeedUsers.EnvironmentVariable,
             $"[{{\"token\":\"{ReaderToken}\",\"name\":\"unit reader\",\"role\":\"reader\"}}," +
-            $"{{\"token\":\"{IngestToken}\",\"name\":\"unit ops\",\"role\":\"ingest\"}}]");
+            $"{{\"token\":\"{IngestToken}\",\"name\":\"unit ops\",\"role\":\"ingest\"}}," +
+            $"{{\"token\":\"{SpecialistToken}\",\"name\":\"unit specialist\",\"role\":\"specialist\"}}," +
+            $"{{\"token\":\"{ManagerToken}\",\"name\":\"unit manager\",\"role\":\"manager\"}}]");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -97,6 +101,10 @@ public class AuthorizationTests : IClassFixture<ApiFactory>
     [InlineData("/api/exceptions")]
     [InlineData("/api/claims/GPP-2026-000101")]
     [InlineData("/api/audit")]
+    [InlineData("/api/analytics")]
+    [InlineData("/api/prevention")]
+    [InlineData("/api/worklist")]
+    [InlineData("/api/worklist/GPP-2026-000101")]
     public async Task Every_protected_read_refuses_a_request_with_no_token(string path)
     {
         Assert.Equal(HttpStatusCode.Unauthorized, await Status(Client(null), HttpMethod.Get, path));
@@ -107,6 +115,10 @@ public class AuthorizationTests : IClassFixture<ApiFactory>
     [InlineData("/api/exceptions")]
     [InlineData("/api/claims/GPP-2026-000101")]
     [InlineData("/api/audit")]
+    [InlineData("/api/analytics")]
+    [InlineData("/api/prevention")]
+    [InlineData("/api/worklist")]
+    [InlineData("/api/worklist/GPP-2026-000101")]
     public async Task Every_protected_read_refuses_an_unknown_token(string path)
     {
         Assert.Equal(HttpStatusCode.Unauthorized,
@@ -229,6 +241,84 @@ public class AuthorizationTests : IClassFixture<ApiFactory>
         Assert.NotEqual(HttpStatusCode.Forbidden, status);
     }
 
+    /* ---- the worklist's two roles ---------------------------------------- */
+
+    [Theory]
+    [InlineData("/api/worklist")]
+    [InlineData("/api/worklist/GPP-2026-000101")]
+    public async Task A_reader_cannot_reach_the_worklist(string path)
+    {
+        // 403, not 404: the route exists and the caller is known. The brief defines two app
+        // roles and `reader` is not one of them — it is the Phase 1 API role.
+        Assert.Equal(HttpStatusCode.Forbidden,
+            await Status(Client(ApiFactory.ReaderToken), HttpMethod.Get, path));
+    }
+
+    [Fact]
+    public async Task An_ingest_identity_cannot_reach_the_worklist_either()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden,
+            await Status(Client(ApiFactory.IngestToken), HttpMethod.Get, "/api/worklist"));
+    }
+
+    [Fact]
+    public async Task A_specialist_passes_the_worklist_role_gate()
+    {
+        var status = await Status(Client(ApiFactory.SpecialistToken), HttpMethod.Get, "/api/worklist");
+
+        Assert.NotEqual(HttpStatusCode.Unauthorized, status);
+        Assert.NotEqual(HttpStatusCode.Forbidden, status);
+    }
+
+    [Theory]
+    [InlineData("/api/worklist/GPP-2026-000101/assign")]
+    [InlineData("/api/worklist/drafts")]
+    public async Task Reassignment_and_bulk_drafting_are_manager_only(string path)
+    {
+        // A specialist doing either of these would be taking work off a colleague's screen or
+        // spending the model's budget on someone else's queue. Refused before the handler runs,
+        // so this needs no database and no body.
+        Assert.Equal(HttpStatusCode.Forbidden,
+            await Status(Client(ApiFactory.SpecialistToken), HttpMethod.Post, path));
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            await Status(Client(ApiFactory.ReaderToken), HttpMethod.Post, path));
+    }
+
+    [Fact]
+    public async Task A_specialist_passes_the_role_gate_on_their_own_status_endpoint()
+    {
+        var status = await Status(Client(ApiFactory.SpecialistToken), HttpMethod.Post,
+            "/api/worklist/GPP-2026-000101/status");
+
+        Assert.NotEqual(HttpStatusCode.Unauthorized, status);
+        Assert.NotEqual(HttpStatusCode.Forbidden, status);
+    }
+
+    [Fact]
+    public async Task A_specialist_may_not_reassign()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden,
+            await Status(Client(ApiFactory.SpecialistToken), HttpMethod.Post,
+                "/api/worklist/GPP-2026-000101/assign"));
+    }
+
+    /* ---- the manager's screens need no database, so they can be asserted fully -- */
+
+    [Theory]
+    [InlineData("/api/analytics")]
+    [InlineData("/api/prevention")]
+    public async Task The_manager_screens_are_readable_by_the_api_read_role(string path)
+    {
+        // Both derive from the data pack alone, so a full 200 is assertable rather than merely
+        // "not refused" — and it proves the figures do not depend on a table being populated.
+        Assert.Equal(HttpStatusCode.OK,
+            await Status(Client(ApiFactory.ReaderToken), HttpMethod.Get, path));
+
+        Assert.Equal(HttpStatusCode.OK,
+            await Status(Client(ApiFactory.SpecialistToken), HttpMethod.Get, path));
+    }
+
     /* ---- a claim route is a lookup, not a lookup-shaped injection ---------- */
 
     [Fact]
@@ -303,9 +393,34 @@ public class SeedUsersTests
     {
         var identities = Read(null, Environments.Development);
 
-        Assert.Equal(2, identities.Count);
+        // Four, not two: the defaults seed both API roles and both worklist roles, so a local
+        // `dotnet run` has the same surface as a seeded `docker compose up` and a missing role
+        // shows up as an empty queue rather than as a mystery 403.
+        Assert.Equal(4, identities.Count);
         Assert.Contains(identities, i => i.Role == Roles.Reader);
         Assert.Contains(identities, i => i.Role == Roles.Ingest);
+        Assert.Contains(identities, i => i.Role == Roles.Specialist);
+        Assert.Contains(identities, i => i.Role == Roles.Manager);
+    }
+
+    [Fact]
+    public void A_configuration_that_cannot_work_the_worklist_is_refused_at_startup()
+    {
+        // The brief names two roles. Seeding only one of them means the other's screens are
+        // unreachable for everyone, which is a misconfiguration — fail here, not at first click.
+        var ex = Assert.Throws<InvalidOperationException>(() => Read(
+            """[{"token":"a-sufficiently-long-token","name":"a","role":"reader"}]"""));
+
+        Assert.Contains("specialist", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Both_worklist_roles_must_be_present_before_the_service_starts()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => Read(
+            """[{"token":"a-sufficiently-long-token","name":"a","role":"specialist"}]"""));
+
+        Assert.Contains("manager", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -361,11 +476,13 @@ public class SeedUsersTests
     public void Well_formed_identities_round_trip_with_their_roles_intact()
     {
         var identities = Read(
-            """[{"token":"a-sufficiently-long-token","name":"alice","role":"ingest"}]""");
+            """[{"token":"a-sufficiently-long-token","name":"alice","role":"ingest"},{"token":"another-long-enough-token","name":"bob","role":"specialist"},{"token":"third-long-enough-token-here","name":"cleo","role":"manager"}]""");
 
-        var identity = Assert.Single(identities);
-        Assert.Equal("alice", identity.Name);
-        Assert.Equal(Roles.Ingest, identity.Role);
-        Assert.Equal("a-sufficiently-long-token", identity.Token);
+        Assert.Equal(3, identities.Count);
+        Assert.Equal("alice", identities[0].Name);
+        Assert.Equal(Roles.Ingest, identities[0].Role);
+        Assert.Equal("a-sufficiently-long-token", identities[0].Token);
+        Assert.Equal(Roles.Specialist, identities[1].Role);
+        Assert.Equal(Roles.Manager, identities[2].Role);
     }
 }

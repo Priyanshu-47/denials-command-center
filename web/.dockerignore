@@ -1,0 +1,7 @@
+# Never in the image: node_modules, build output, or anything a local run
+# may have dropped in here.
+node_modules
+dist
+*.log
+.env
+.env.*

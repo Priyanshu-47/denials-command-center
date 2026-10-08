@@ -6,6 +6,25 @@ public enum CitationVerdict
     /// <summary>The draft carried no citation at all — correct when this payer's policies say nothing about the denial.</summary>
     NoCitation,
 
+    /// <summary>
+    /// No draft was produced, so no citation was ever claimed or checked. Distinct from
+    /// <see cref="NoCitation"/>, which means someone looked and found nothing: conflating them
+    /// would credit a run that never happened with the result of one that did.
+    /// </summary>
+    NotAssessed,
+
+    /// <summary>
+    /// The draft cited nothing, but this system had found clauses the denial may be argued from.
+    /// </summary>
+    /// <remarks>
+    /// The dangerous shape in the whole flow: a note that reads \"no policy basis found\" while a
+    /// basis sits in the allowed list is not cautious, it is wrong — and it quietly loses the
+    /// recovery. The draft is <b>kept</b> rather than discarded, because the prose may be fine and
+    /// a specialist can add the citation in seconds; the verdict forces it to review so nobody
+    /// sends the claim away arguing there was nothing to argue with.
+    /// </remarks>
+    ClauseAvailableUncited,
+
     /// <summary>Cited clause exists in a document this payer may be cited from, and any quotation is real.</summary>
     Valid,
 

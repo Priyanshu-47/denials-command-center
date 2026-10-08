@@ -14,6 +14,19 @@ public static class Roles
 {
     public const string Reader = "reader";
     public const string Ingest = "ingest";
+
+    /// <summary>Works their own queue: sees assigned items, updates status and notes.</summary>
+    public const string Specialist = "specialist";
+
+    /// <summary>Sees every queue, reassigns work, and reviews low-confidence analysis.</summary>
+    public const string Manager = "manager";
+
+    /// <summary>All roles that may read. Kept in one place so a new app role cannot be added
+    /// without deciding, explicitly, whether it inherits read access.</summary>
+    public static readonly IReadOnlyList<string> All =
+        [Reader, Ingest, Specialist, Manager];
+
+    public static bool IsKnown(string role) => All.Contains(role, StringComparer.OrdinalIgnoreCase);
 }
 
 public static class Policies
@@ -23,6 +36,12 @@ public static class Policies
 
     /// <summary>Trigger a re-ingestion of the data pack.</summary>
     public const string Ingest = "ingest";
+
+    /// <summary>Read the worklist and change your own items' status and notes.</summary>
+    public const string Worklist = "worklist";
+
+    /// <summary>Reassign work, review the low-confidence queue, run drafting in bulk.</summary>
+    public const string Manage = "manage";
 }
 
 /// <summary>
@@ -49,6 +68,8 @@ public static class SeedUsers
     [
         new("dev-reader-token", "local reader", Roles.Reader),
         new("dev-ingest-token", "local ingest operator", Roles.Ingest),
+        new("dev-specialist-token", "local specialist", Roles.Specialist),
+        new("dev-manager-token", "local manager", Roles.Manager),
     ];
 
     public static IReadOnlyList<ApiIdentity> Read(IConfiguration configuration, IHostEnvironment environment)
@@ -84,11 +105,23 @@ public static class SeedUsers
                     $"A token in {EnvironmentVariable} is missing or shorter than 16 characters "
                   + $"(user '{identity.Name}').");
 
-            if (identity.Role != Roles.Reader && identity.Role != Roles.Ingest)
+            if (!Roles.IsKnown(identity.Role))
                 throw new InvalidOperationException(
                     $"User '{identity.Name}' has unknown role '{identity.Role}'. "
-                  + $"Expected '{Roles.Reader}' or '{Roles.Ingest}'.");
+                  + $"Expected one of: {string.Join(", ", Roles.All)}.");
         }
+
+        // A system with no manager cannot reassign, and a system with no specialist has nobody
+        // whose queue it is — both would fail at the first click rather than at startup.
+        if (!parsed.Any(u => u.Role == Roles.Specialist))
+            throw new InvalidOperationException(
+                $"{EnvironmentVariable} contains no '{Roles.Specialist}'. The worklist has two "
+              + "roles and this configuration only seeds one of them.");
+
+        if (!parsed.Any(u => u.Role == Roles.Manager))
+            throw new InvalidOperationException(
+                $"{EnvironmentVariable} contains no '{Roles.Manager}'. The worklist has two "
+              + "roles and this configuration only seeds one of them.");
 
         return parsed;
     }

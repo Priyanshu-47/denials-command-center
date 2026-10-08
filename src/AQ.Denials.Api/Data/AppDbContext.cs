@@ -35,6 +35,8 @@ public sealed class AppDbContext : DbContext
     public DbSet<ExceptionRow> ExceptionRows => Set<ExceptionRow>();
     public DbSet<IngestRun> IngestRuns => Set<IngestRun>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+    public DbSet<WorkItem> WorkItems => Set<WorkItem>();
+    public DbSet<WorkItemEvent> WorkItemEvents => Set<WorkItemEvent>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -129,5 +131,36 @@ public sealed class AppDbContext : DbContext
         audit.HasIndex(a => a.At);
         audit.Property(a => a.Action).HasMaxLength(64);
         audit.Property(a => a.EntityType).HasMaxLength(64);
+
+        // --- worklist ---------------------------------------------------------------
+        // No FK to Claim, deliberately: /api/ingest truncates the claim tables on every
+        // re-run and would otherwise cascade-delete the team's own history (see WorkItem).
+        // ClaimId is a natural key here, so a claim that leaves the pack shows up as an
+        // orphan to be reviewed rather than vanishing along with its audit trail.
+        // Events are keyed by claim id with **no foreign key to WorkItem**, deliberately: a
+        // cascade would delete the audit trail the moment the work item it describes were
+        // removed, which is the one thing an audit trail exists to survive. Orphan events are
+        // the correct outcome — they record what happened to a claim regardless of whether the
+        // item is still there.
+        var work = model.Entity<WorkItem>();
+        work.HasKey(w => w.Id);
+        work.HasIndex(w => w.ClaimId).IsUnique();
+        work.Property(w => w.ClaimId).HasMaxLength(32);
+        work.Property(w => w.Status).HasMaxLength(32);
+        work.Property(w => w.Assignee).HasMaxLength(64);
+        work.Property(w => w.CreatedBy).HasMaxLength(64);
+        work.Property(w => w.LastNote).HasMaxLength(2000);
+
+        var evt = model.Entity<WorkItemEvent>();
+        evt.HasKey(e => e.Id);
+        evt.HasIndex(e => new { e.ClaimId, e.At });
+        evt.Property(e => e.ClaimId).HasMaxLength(32);
+        evt.Property(e => e.Field).HasMaxLength(32);
+        evt.Property(e => e.Actor).HasMaxLength(64);
+        evt.Property(e => e.Note).HasMaxLength(2000);
+        // before/after are bounded on purpose: they are shown in a list, and an unbounded
+        // column invites pasting a patient's whole story into an audit table.
+        evt.Property(e => e.Before).HasMaxLength(256);
+        evt.Property(e => e.After).HasMaxLength(256);
     }
 }

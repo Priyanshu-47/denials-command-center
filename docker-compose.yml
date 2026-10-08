@@ -1,7 +1,7 @@
 # =====================================================================
-# `docker compose up`  ->  postgres + API.
+# `docker compose up`  ->  postgres + API + web.
 #
-# Two invariants this file is written to make true:
+# Three invariants this file is written to make true:
 #
 #   1. The data pack is mounted READ-ONLY at /data. Nothing in the
 #      container can rewrite, relocate or delete the originals, and
@@ -9,6 +9,9 @@
 #   2. If DATA_DIR is unset or points somewhere that does not contain the
 #      expected files, the API exits immediately listing every file it
 #      could not find — it does not start and half-ingest.
+#   3. The browser talks to exactly one origin. nginx serves the bundle
+#      and forwards /api, so there is no CORS surface and no URL a
+#      mis-set variable could redirect the bearer token to.
 # =====================================================================
 
 services:
@@ -41,8 +44,10 @@ services:
       SEED_USERS: ${SEED_USERS:?set SEED_USERS in .env (cp .env.example .env)}
       AUTOMIGRATE: ${AUTOMIGRATE:-true}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-}
     volumes:
       # read-only, and only this directory: the pack is an input, never an output.
       - ${DATA_DIR:?set DATA_DIR in .env to the unzipped data pack}:/data:ro
@@ -54,6 +59,17 @@ services:
       timeout: 4s
       retries: 24
       start_period: 20s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-5173}:80"
     restart: unless-stopped
 
 volumes:
