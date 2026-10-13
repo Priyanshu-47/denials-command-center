@@ -305,7 +305,9 @@ exported as machine-readable JSON rules.
 | `docs/AI_USAGE_LOG.md` | How AI was used, and where it was wrong (W1–W34). |
 | `docs/AI_EVALUATION.md` | **C** — evaluation against the labelled sample, adversarial cases, and which model actually ran. |
 | `docs/DEMO_SCRIPT.md` | The 5–8 minute recording script, timed. |
-| `docs/HOURS.md` | Time log. *(maintained by hand — not edited by AI)* |
+| `docs/HOURS.md` | Time log. |
+| `docs/DEPLOYMENT_RUNBOOK.md` | Start/stop/logs/update/rollback, health checks, access, troubleshooting on the Azure VM. |
+| `docs/VM_DEPLOYMENT_REPORT.md` | What was deployed and actually verified on the VM: commit SHA, test results, resource usage, limitations. |
 
 ### Running the tests
 
@@ -314,6 +316,7 @@ dotnet test                      # everything except the live-model tests
 npm --prefix web run build       # typecheck + bundle the console
 node tools/verify_phase0.mjs     # Phase 0 invariants
 node tools/phi_guard.mjs         # PHI guard (scans TRACKED files — run after `git add`) 
+node tools/verify_deployment.mjs # live-deployment smoke test (needs a running stack + tokens)
 ```
 
 The live-model tests (`LiveModelTests`) return early and pass trivially unless
