@@ -440,7 +440,15 @@ app.MapGet("/api/worklist/{claimId}", async (
 
     // The claim itself, for the billed → paid → denied timeline. Same projection shape as
     // /api/claims/{id} so the detail page can render both without two models.
-    var claim = state.Current.State.Claims
+    //
+    // Read the state ONCE. IStateProvider.Current is a computed property that re-reads and
+    // re-runs the whole data pack on every access, so it hands back a fresh object graph each
+    // time. Reading it again inside the projection below would match observations from one graph
+    // against remit files from another, `Contains` would never be true, and every sourceFile
+    // would come back null — which the UI renders as "source unknown" on every timeline row.
+    // /api/claims/{id} already captures `var outcome = state.Current;` for the same reason.
+    var outcome = state.Current;
+    var claim = outcome.State.Claims
         .FirstOrDefault(c => string.Equals(c.ClaimId, claimId, StringComparison.Ordinal));
 
     return Results.Ok(new
@@ -461,7 +469,7 @@ app.MapGet("/api/worklist/{claimId}", async (
             {
                 o.Seq, o.PayerId, o.CheckDate, o.StatusCode,
                 submittedCharge = o.SubmittedCharge, o.PaidAmount, o.PatientResponsibility,
-                sourceFile = state.Current.State.RemitFiles
+                sourceFile = outcome.State.RemitFiles
                     .Where(f => f.Observations.Contains(o))
                     .Select(f => f.FileName).FirstOrDefault(),
                 adjustments = o.Adjustments.Select(a => new
