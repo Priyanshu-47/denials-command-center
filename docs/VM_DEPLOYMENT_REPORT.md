@@ -3,8 +3,9 @@
 **Date:** 13 October 2026
 **Host:** Azure VM `JainVM` (Ubuntu 24.04.4 LTS, 4 vCPU, 16 GB RAM, 123 GB disk), West US2
 **Public IP:** 20.98.93.123
-**Deployed commit:** `c935411f91576764bd7391381fd911e4e6313af1` (`master`)
-**Previous commit:** `c2bc466` (the delivered application) — one follow-up commit was added, see §6.
+**Deployed application image:** built from `c935411f91576764bd7391381fd911e4e6313af1`
+**Delivered application:** `c2bc466` — one code commit followed it (§6), then documentation commits.
+Documentation-only commits do not require a rebuild; `git rev-parse HEAD` will be ahead of `c935411`.
 
 No credential, token, password or connection string appears in this document.
 
@@ -305,5 +306,6 @@ ssh -i "D:\DL\JainVM_key.pem" azureuser@20.98.93.123
 cd /home/azureuser/denials-command-center
 sudo docker compose ps
 curl -fsS http://localhost:8080/health
-git rev-parse HEAD      # c935411f91576764bd7391381fd911e4e6313af1
+git rev-parse HEAD      # current repository head
+git log --oneline -3    # the application image is built from c935411
 ```
