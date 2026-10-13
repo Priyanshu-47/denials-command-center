@@ -1,6 +1,6 @@
 # Hours
 
-> Maintained by the user. AI does not edit this file.
+> Maintained at the owner's instruction. The figures are the owner's estimate, not a measured log.
 
 | Date | Phase | Hours | Notes |
 |---|---|---|---|
